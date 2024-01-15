@@ -25,46 +25,127 @@ def main():
     options.add_argument('--private')
     driver = webdriver.Firefox(options=options)
     driver.implicitly_wait(5)
-    destination_url = "https://pathfinderwiki.com/wiki/Portal:Geography"
-    get_wait_and_clean(driver, destination_url)
 
     history = set()
-    level1_links = get_contentbox_links(driver, 'Teleport')
-    level1_links |= get_contentbox_links(driver, 'Other Continents')
-    logging.info(f'Found link urls: %s', level1_links)
-
+    level1_links = set()
     level2_links = set()
+    level3_links = set()
+    level1_links = get_religion_links(driver, level1_links)
+    level1_links = get_creature_level1(driver, level1_links)
+    level1_links = get_inhabitant_links(driver, level1_links)
+    level1_links = get_geography_links(driver, level1_links)
+
     for url in level1_links:
         level2_links |= process_page(driver, url)
         history.add(url)
     level2_links -= history
+    for url in level2_links:
+        level3_links |= process_page(driver, url)
+        history.add(url)
     driver.quit()
 
 
-def process_page(driver: RemoteWebDriver, url: str) -> Set[str]:
+def get_geography_links(driver, level1_links: Set[str]) -> Set[str]:
+    destination_url = "https://pathfinderwiki.com/wiki/Portal:Geography"
+    get_wait_and_clean(driver, destination_url)
+    level1_links |= get_contentbox_links(driver, 'Teleport')
+    level1_links |= get_contentbox_links(driver, 'Other Continents')
+    return level1_links
+
+def get_inhabitant_links(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[str]:
+    destination_url = "https://pathfinderwiki.com/wiki/Portal:Inhabitants"
+    get_wait_and_clean(driver, destination_url)
+
+    ancestry_links = get_contentbox_links(driver, 'Ancestries')
+
+    return level1_links | ancestry_links
+
+def get_religion_links(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[str]:
+    destination_url = "https://pathfinderwiki.com/wiki/Portal:Inhabitants"
+    get_wait_and_clean(driver, destination_url)
+
+    links = get_contentbox_links(driver, 'Deities & pantheons')
+
+    return level1_links | links
+
+def get_creature_level1(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[str]:
+    destination_url = "https://pathfinderwiki.com/wiki/Category:Creatures_by_CR"
+    get_wait_and_clean(driver, destination_url)
+    elem = driver.find_element(By.ID, 'mw-content-text')
+    base_links = set()
+    potential_links = elem.find_elements(By.XPATH, "//a[not(@class='new')]")
+    new_links = set()
+    for link in potential_links:
+        href = link.get_attribute('href')
+        if url_is_useful(href):
+            base_links.add(href)
+    for inhabitant_link in base_links:
+        sub_links = process_page(driver, inhabitant_link, False)
+        sub_links = {item for item in sub_links if 'Category' not in str(item)}
+        new_links |= sub_links
+    new_links = {item for item in new_links if 'Category' not in str(item)}
+    return level1_links | new_links
+
+def is_empty_page(driver: RemoteWebDriver) -> bool:
+    result = driver.execute_script("""
+            var my_test_e = document.getElementsByClassName('banner')
+            if (my_test_e.length == 0) { return ''; }
+            var my_e = my_test_e[0]
+            return my_e.textContent
+            """)
+    if isinstance(result, str):
+        if 'This page is a stub' in result:
+            return True
+    result = driver.execute_script("""
+                var my_test_e = document.getElementsByClassName('mw-category-generated')
+                if (my_test_e.length == 0) { return ''; }
+                var my_e = my_test_e[0]
+                return my_e.textContent
+                """)
+    if isinstance(result, str):
+        if 'This category currently contains no pages or media' in result:
+            return True
+    return False
+
+def process_page(driver: RemoteWebDriver, url: str, write_page=True) -> Set[str]:
     found_links = set()
+
     get_wait_and_clean(driver, url)
+    if is_empty_page(driver):
+        return set()
     potential_links = driver.find_elements(By.XPATH, "//a[not(@class='new')]")
     for link in potential_links:
         href = link.get_attribute('href')
-        if isinstance(href, str):
-            href = href.split('#')[0].split('?')[0]
-            is_year_url = href.endswith('_AR')
-            is_wiki_meta = '/PathfinderWiki' in href or '/Pathfinder_Wiki' in href
-            if not href.endswith('.php') and not is_year_url and not is_wiki_meta:
-                found_links.add(href.split('#')[0].split('?')[0])
+        if url_is_useful(href):
+            found_links.add(href.split('#')[0].split('?')[0])
 
-    strip_extra_reading_links(driver)
-    current_url = driver.current_url
-    path_sections = [section for section in urlparse(current_url).path.split('/') if section]
-    path_sections[-1] = path_sections[-1] + '.html'
-    store_loc = Path(os.path.join(*(['scraped'] + path_sections)))
-    logging.info(f'Writing to: {store_loc}')
-    html_content = driver.page_source
-    directory = os.path.dirname(store_loc)
-    os.makedirs(directory, exist_ok=True)
-    with open(store_loc, 'w') as file: file.write(html_content)
+    if write_page:
+        strip_extra_reading_links(driver)
+        current_url = driver.current_url
+        path_sections = [section for section in urlparse(current_url).path.split('/') if section]
+        path_sections[-1] = path_sections[-1] + '.html'
+        store_loc = Path(os.path.join(*(['scraped'] + path_sections)))
+        logging.info(f'Writing to: {store_loc}')
+        html_content = driver.page_source
+        directory = os.path.dirname(store_loc)
+        os.makedirs(directory, exist_ok=True)
+        with open(store_loc, 'w') as file: file.write(html_content)
     return found_links
+
+def url_is_useful(url) -> bool:
+    if isinstance(url, str):
+        if 'Pathfinder_campaign_setting' in url:
+            # this is meta
+            return False
+        is_wiki = 'https://pathfinderwiki.com' in url
+        if not is_wiki:
+            return False
+        url = url.split('#')[0].split('?')[0]
+        is_year_url = url.endswith('_AR')
+        is_wiki_meta = '/PathfinderWiki' in url or '/Pathfinder_Wiki' in url
+        if not url.endswith('.php') and not is_year_url and not is_wiki_meta:
+            return True
+    return False
 
 def get_wait_and_clean(driver: RemoteWebDriver, destination_url: str):
     driver.get(destination_url)
@@ -115,10 +196,10 @@ def strip_extra_reading_links(driver: RemoteWebDriver):
 def get_contentbox_links(driver: RemoteWebDriver, title: str) -> Set[str]:
     link_urls = set()
     content_box = driver.find_element(By.XPATH, f"//*[@class='content-box' and *[@class='title' and text()='{title}']]")
-    links = content_box.find_elements(By.TAG_NAME, 'a')
+    links = content_box.find_elements(By.XPATH, "//a[not(@class='new')]")
     for link in links:
         url = link.get_attribute('href')
-        if url.startswith('https://pathfinderwiki.com') and url not in link_urls:
+        if url_is_useful(url):
             link_urls.add(url)
     return link_urls
 
