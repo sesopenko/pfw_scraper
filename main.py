@@ -119,6 +119,8 @@ def process_page(driver: RemoteWebDriver, url: str, write_page=True) -> Set[str]
     contains_useless_data = False
     if '/Category' in url:
         contains_useless_data = True
+    if '?action=edit' in url:
+        return set()
     found_links = set()
 
     get_wait_and_clean(driver, url)
