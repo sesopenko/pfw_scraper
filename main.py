@@ -61,10 +61,11 @@ def get_inhabitant_links(driver: RemoteWebDriver, level1_links: Set[str]) -> Set
     return level1_links | ancestry_links
 
 def get_religion_links(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[str]:
-    destination_url = "https://pathfinderwiki.com/wiki/Portal:Inhabitants"
+    destination_url = "https://pathfinderwiki.com/wiki/Portal:Religion"
     get_wait_and_clean(driver, destination_url)
 
     links = get_contentbox_links(driver, 'Deities & pantheons')
+    links = {item for item in links if 'Category' not in str(item)}
 
     return level1_links | links
 
