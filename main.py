@@ -36,16 +36,19 @@ def main():
     level1_links = get_geography_links(driver, level1_links)
 
     for url in level1_links:
+        logging.info('beginning walk of level1_links')
         level2_links |= process_page(driver, url)
         history.add(url)
     level2_links -= history
     for url in level2_links:
+        logging.info('beginning walk of level2_links')
         level3_links |= process_page(driver, url)
         history.add(url)
     driver.quit()
 
 
 def get_geography_links(driver, level1_links: Set[str]) -> Set[str]:
+    logging.info('getting geography links')
     destination_url = "https://pathfinderwiki.com/wiki/Portal:Geography"
     get_wait_and_clean(driver, destination_url)
     level1_links |= get_contentbox_links(driver, 'Teleport')
@@ -53,6 +56,7 @@ def get_geography_links(driver, level1_links: Set[str]) -> Set[str]:
     return level1_links
 
 def get_inhabitant_links(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[str]:
+    logging.info('getting inhabitant links')
     destination_url = "https://pathfinderwiki.com/wiki/Portal:Inhabitants"
     get_wait_and_clean(driver, destination_url)
 
@@ -61,6 +65,7 @@ def get_inhabitant_links(driver: RemoteWebDriver, level1_links: Set[str]) -> Set
     return level1_links | ancestry_links
 
 def get_religion_links(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[str]:
+    logging.info('getting religion links')
     destination_url = "https://pathfinderwiki.com/wiki/Portal:Religion"
     get_wait_and_clean(driver, destination_url)
 
@@ -70,6 +75,7 @@ def get_religion_links(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[s
     return level1_links | links
 
 def get_creature_level1(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[str]:
+    logging.info('Getting creature pages')
     destination_url = "https://pathfinderwiki.com/wiki/Category:Creatures_by_CR"
     get_wait_and_clean(driver, destination_url)
     elem = driver.find_element(By.ID, 'mw-content-text')
@@ -81,6 +87,7 @@ def get_creature_level1(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[
         if url_is_useful(href):
             base_links.add(href)
     for inhabitant_link in base_links:
+        logging.info(f'Getting create page but not saving: {inhabitant_link}')
         sub_links = process_page(driver, inhabitant_link, False)
         sub_links = {item for item in sub_links if 'Category' not in str(item)}
         new_links |= sub_links
@@ -177,6 +184,8 @@ def strip_garbage(driver: RemoteWebDriver):
         $('#articleReferences').remove();
         $('.navbox').remove();
         $('#p-search').remove();
+        // Unfortunately this is too much white noise:
+        $('.infobox').remove();
         // remove html comments
         $('*').contents().filter(function () {
             return this.nodeType === 8; // Filter for comment nodes
