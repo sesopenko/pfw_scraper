@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 from typing import List, Set
+import re
 
 import logging
 
@@ -28,18 +29,31 @@ def main():
     get_wait_and_clean(driver, destination_url)
 
     history = set()
-    main_geography_urls = get_contentbox_links(driver, 'Teleport')
-    logging.info(f'Found link urls: %s', main_geography_urls)
-    other_contentbox_links = get_contentbox_links(driver, 'Other Continents')
-    logging.info(f'Found link urls: %s', other_contentbox_links)
+    level1_links = get_contentbox_links(driver, 'Teleport')
+    level1_links |= get_contentbox_links(driver, 'Other Continents')
+    logging.info(f'Found link urls: %s', level1_links)
 
-    for url in main_geography_urls:
-        process_page(driver, url)
+    level2_links = set()
+    for url in level1_links:
+        level2_links |= process_page(driver, url)
+        history.add(url)
+    level2_links -= history
     driver.quit()
 
 
-def process_page(driver: RemoteWebDriver, url: str):
+def process_page(driver: RemoteWebDriver, url: str) -> Set[str]:
+    found_links = set()
     get_wait_and_clean(driver, url)
+    potential_links = driver.find_elements(By.XPATH, "//a[not(@class='new')]")
+    for link in potential_links:
+        href = link.get_attribute('href')
+        if isinstance(href, str):
+            href = href.split('#')[0].split('?')[0]
+            is_year_url = href.endswith('_AR')
+            is_wiki_meta = '/PathfinderWiki' in href or '/Pathfinder_Wiki' in href
+            if not href.endswith('.php') and not is_year_url and not is_wiki_meta:
+                found_links.add(href.split('#')[0].split('?')[0])
+
     strip_extra_reading_links(driver)
     current_url = driver.current_url
     path_sections = [section for section in urlparse(current_url).path.split('/') if section]
@@ -50,6 +64,7 @@ def process_page(driver: RemoteWebDriver, url: str):
     directory = os.path.dirname(store_loc)
     os.makedirs(directory, exist_ok=True)
     with open(store_loc, 'w') as file: file.write(html_content)
+    return found_links
 
 def get_wait_and_clean(driver: RemoteWebDriver, destination_url: str):
     driver.get(destination_url)
@@ -91,9 +106,7 @@ def strip_garbage(driver: RemoteWebDriver):
 
 def strip_extra_reading_links(driver: RemoteWebDriver):
     driver.execute_script("""
-        $('document').ready(function() {
-            $('.relarticle').remove();
-        });
+        $('.relarticle').remove();
         
         """)
     time.sleep(0.1)
