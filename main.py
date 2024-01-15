@@ -35,13 +35,13 @@ def main():
     level1_links = get_inhabitant_links(driver, level1_links)
     level1_links = get_geography_links(driver, level1_links)
 
+    logging.info('beginning walk of level1_links')
     for url in level1_links:
-        logging.info('beginning walk of level1_links')
         level2_links |= process_page(driver, url)
         history.add(url)
     level2_links -= history
+    logging.info('beginning walk of level2_links')
     for url in level2_links:
-        logging.info('beginning walk of level2_links')
         level3_links |= process_page(driver, url)
         history.add(url)
     driver.quit()
