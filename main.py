@@ -8,6 +8,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from urllib.parse import urlparse
+from tqdm import tqdm
 import os
 from pathlib import Path
 
@@ -36,12 +37,12 @@ def main():
     level1_links = get_geography_links(driver, level1_links)
 
     logging.info('beginning walk of level1_links')
-    for url in level1_links:
+    for url in tqdm(level1_links, desc='Level 1 Links', unit='link'):
         level2_links |= process_page(driver, url)
         history.add(url)
     level2_links -= history
     logging.info('beginning walk of level2_links')
-    for url in level2_links:
+    for url in tqdm(level2_links, desc='Level 2 Links', unit='Link'):
         level3_links |= process_page(driver, url)
         history.add(url)
     driver.quit()
@@ -183,6 +184,8 @@ def strip_garbage(driver: RemoteWebDriver):
         $('#right-navigation').remove();
         $('.displaymap').remove();
         $('.mw-table-of-contents-container').remove();
+        $('#siteSub').remove();
+        $('.thumbinner').remove();
         $('#catlinks').remove();
         $('#References').remove();
         $('.reference-text').remove();
