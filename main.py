@@ -116,6 +116,9 @@ def is_empty_page(driver: RemoteWebDriver) -> bool:
     return False
 
 def process_page(driver: RemoteWebDriver, url: str, write_page=True) -> Set[str]:
+    contains_useless_data = False
+    if '/Category' in url:
+        contains_useless_data = True
     found_links = set()
 
     get_wait_and_clean(driver, url)
@@ -127,7 +130,7 @@ def process_page(driver: RemoteWebDriver, url: str, write_page=True) -> Set[str]
         if url_is_useful(href):
             found_links.add(href.split('#')[0].split('?')[0])
 
-    if write_page:
+    if (not contains_useless_data) and  write_page:
         strip_extra_reading_links(driver)
         current_url = driver.current_url
         path_sections = [section for section in urlparse(current_url).path.split('/') if section]
@@ -186,6 +189,10 @@ def strip_garbage(driver: RemoteWebDriver):
         $('#p-search').remove();
         // Unfortunately this is too much white noise:
         $('.infobox').remove();
+        $('.mw-header').remove();
+        $('.mw-jump-link').remove();
+        $('#vector-toc-collapsed-checkbox').remove();
+        $('.printfooter').remove()
         // remove html comments
         $('*').contents().filter(function () {
             return this.nodeType === 8; // Filter for comment nodes
