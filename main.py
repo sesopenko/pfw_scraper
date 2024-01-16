@@ -1,3 +1,4 @@
+import json
 import time
 
 from selenium import webdriver
@@ -6,6 +7,7 @@ from selenium.webdriver.common.by import By
 
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 from urllib.parse import urlparse
 from tqdm import tqdm
@@ -19,6 +21,10 @@ import logging
 
 store_loc = 'scraped'
 
+def MaxRetriesException(Exception):
+    def __init__(self, message='Max retries exceeded'):
+        self.message = message
+        super().__init__(self.message)
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,7 +33,6 @@ def main():
     driver = webdriver.Firefox(options=options)
     driver.implicitly_wait(5)
 
-    history = set()
     level1_links = set()
     level2_links = set()
     level3_links = set()
@@ -35,18 +40,44 @@ def main():
     level1_links = get_creature_level1(driver, level1_links)
     level1_links = get_inhabitant_links(driver, level1_links)
     level1_links = get_geography_links(driver, level1_links)
+    history = set()
 
-    logging.info('beginning walk of level1_links')
-    for url in tqdm(level1_links, desc='Level 1 Links', unit='link'):
-        level2_links |= process_page(driver, url)
-        history.add(url)
+    logging.info(f'beginning walk of level1_links: {len(level1_links)} todo.')
+    level2_links |= walk_links(driver, level1_links, 'Level 1 Links', history)
+    # for url in tqdm(level1_links, desc='Level 1 Links', unit='link'):
+    #     level2_links |= process_page(driver, url)
+    #     history.add(url)
     level2_links -= history
-    logging.info('beginning walk of level2_links')
-    for url in tqdm(level2_links, desc='Level 2 Links', unit='Link'):
-        level3_links |= process_page(driver, url)
-        history.add(url)
+    logging.info(f'beginning walk of level2_links: {len(level2_links)} todo.')
+    level3_links |= walk_links(driver, level2_links, 'Level 2 Links', history)
+    # for url in tqdm(level2_links, desc='Level 2 Links', unit='Link'):
+    #     level3_links |= process_page(driver, url)
+    #     history.add(url)
+    links_processed = {
+        'level1_links': list(level1_links),
+        'level2_links': list(level2_links),
+        'level3_links': list(level3_links),
+    }
+    json_data = json.dumps(links_processed, indent=4),
+    with open('scraped/links_processed.json', 'w') as file:
+        file.write(json_data)
     driver.quit()
 
+def walk_links(driver: RemoteWebDriver, urls: Set[str], desc: str, history: set[str]):
+    links_found = set()
+    # don't walk links we've visited already
+    urls -= history
+    minimum_time = 1.0
+
+    for url in tqdm(urls, desc=desc, unit='url'):
+        now = time.time()
+        links_found |= process_page(driver, url)
+        duration = time.time() - now
+        if duration < minimum_time:
+            logging.debug(f'waiting {minimum_time}')
+            time.sleep(minimum_time - duration)
+        history.add(url)
+    return links_found
 
 def get_geography_links(driver, level1_links: Set[str]) -> Set[str]:
     logging.info('getting geography links')
@@ -89,7 +120,12 @@ def get_creature_level1(driver: RemoteWebDriver, level1_links: Set[str]) -> Set[
             base_links.add(href)
     for inhabitant_link in base_links:
         logging.info(f'Getting create page but not saving: {inhabitant_link}')
+        max_time = 1.0
+        start_time = time.time()
         sub_links = process_page(driver, inhabitant_link, False)
+        duration = time.time() - start_time
+        if duration < max_time:
+            time.sleep(max_time - duration)
         sub_links = {item for item in sub_links if 'Category' not in str(item)}
         new_links |= sub_links
     new_links = {item for item in new_links if 'Category' not in str(item)}
@@ -161,9 +197,23 @@ def url_is_useful(url) -> bool:
             return True
     return False
 
-def get_wait_and_clean(driver: RemoteWebDriver, destination_url: str):
+def get_wait_and_clean(driver: RemoteWebDriver, destination_url: str, num_attempts = 0):
+    logging.info(f'Getting {destination_url}. Attempt {num_attempts}')
     driver.get(destination_url)
-    wait_for_first_heading(driver)
+    try:
+        wait_for_first_heading(driver)
+    except TimeoutException:
+        max_attempts = 5
+        logging.warning(f'Timeout waiting for {destination_url}. Already attempted {num_attempts}/{max_attempts}.')
+        if num_attempts == max_attempts:
+            logging.error(f'Reached max attempts for {destination_url}')
+            raise MaxRetriesException()
+        else:
+            # back off, so we don't dos the service.
+            wait_time = 1 + (2 * num_attempts)
+            logging.info(f'Waiting {wait_time} for {destination_url}.')
+            time.sleep(wait_time)
+            get_wait_and_clean(driver, destination_url, num_attempts + 1)
     strip_garbage(driver)
 
 def strip_garbage(driver: RemoteWebDriver):
@@ -226,7 +276,7 @@ def get_contentbox_links(driver: RemoteWebDriver, title: str) -> Set[str]:
     return link_urls
 
 def wait_for_first_heading(driver: RemoteWebDriver):
-    WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 5).until(
         EC.presence_of_element_located((By.ID, 'firstHeading'))
     )
 
